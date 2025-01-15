@@ -1,0 +1,93 @@
+# version: '3.7'
+
+services:
+  auth-service:
+    build:
+      context: ./InsuranceAuth
+      dockerfile: Dockerfile
+      args:
+        user: auth
+        uid: 1000
+    container_name: InsuranceAuth
+    ports:
+      - "8001:9000"
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_DATABASE=insurance_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=secrect
+    networks:
+      - app-network
+
+  policy-service:
+    build:
+      context: ./InsurancePolicy
+      dockerfile: Dockerfile
+      args:
+        user: policy
+        uid: 1001
+    container_name: InsurancePolicy
+    ports:
+      - "8002:9000"
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_DATABASE=insurance_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=secrect
+    networks:
+      - app-network
+
+  product-service:
+    build:
+      context: ./InsuranceProduct
+      dockerfile: Dockerfile
+      args:
+        user: product
+        uid: 1002
+    container_name: InsuranceProduct
+    ports:
+      - "8003:9000"
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_DATABASE=insurance_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=secrect
+    networks:
+      - app-network
+
+  db:
+    image: mysql:8
+    container_name: db
+    environment:
+      MYSQL_ROOT_PASSWORD: secrect
+      MYSQL_DATABASE: insurance_db
+    volumes:
+      - ./docker-compose/mysql:/docker-entrypoint-initdb.d
+      - ./dbdata:/var/lib/mysql
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker-compose/nginx:/etc/nginx/conf.d/
+    depends_on:
+      - auth-service
+      - policy-service
+      - product-service
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local
