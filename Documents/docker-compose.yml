@@ -1,0 +1,298 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build: 
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - auth-service
+      - policy-service
+      - claims-service
+      - customer-service
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    networks:
+      - insurance-network
+    environment:
+      - CONSUL_HOST=consul
+      - TRAEFIK_ENABLE=true
+
+  # Authentication Microservice
+  auth-service:
+    build: 
+      context: ./auth-service
+      dockerfile: Dockerfile
+    depends_on:
+      - auth-db
+      - redis
+      - kafka
+    networks:
+      - insurance-network
+    environment:
+      - DB_HOST=auth-db
+      - REDIS_HOST=redis
+      - KAFKA_BROKER=kafka:9092
+      - JWT_SECRET=${JWT_SECRET}
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
+
+  # Policy Management Microservice
+  policy-service:
+    build: 
+      context: ./policy-service
+      dockerfile: Dockerfile
+    depends_on:
+      - policy-db
+      - kafka
+      - redis
+      - risk-assessment-service
+    networks:
+      - insurance-network
+    environment:
+      - DB_HOST=policy-db
+      - KAFKA_BROKER=kafka:9092
+      - RISK_ASSESSMENT_URL=http://risk-assessment-service:5000
+      - PAYMENT_SERVICE_URL=http://payment-service:8080
+
+  # Claims Management Microservice
+  claims-service:
+    build: 
+      context: ./claims-service
+      dockerfile: Dockerfile
+    depends_on:
+      - claims-db
+      - kafka
+      - rabbitmq
+    networks:
+      - insurance-network
+    environment:
+      - DB_HOST=claims-db
+      - RABBITMQ_HOST=rabbitmq
+      - KAFKA_BROKER=kafka:9092
+      - FRAUD_DETECTION_URL=http://fraud-detection-service:5000
+
+  # Customer Management Microservice
+  customer-service:
+    build: 
+      context: ./customer-service
+      dockerfile: Dockerfile
+    depends_on:
+      - customer-db
+      - redis
+    networks:
+      - insurance-network
+    environment:
+      - DB_HOST=customer-db
+      - REDIS_HOST=redis
+
+  # Risk Assessment Microservice
+  risk-assessment-service:
+    build: 
+      context: ./risk-assessment-service
+      dockerfile: Dockerfile.python
+    networks:
+      - insurance-network
+    volumes:
+      - ./ml-models:/app/models
+    environment:
+      - MODEL_PATH=/app/models
+      - KAFKA_BROKER=kafka:9092
+
+  # Payment Microservice
+  payment-service:
+    build: 
+      context: ./payment-service
+      dockerfile: Dockerfile
+    networks:
+      - insurance-network
+    environment:
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
+      - KAFKA_BROKER=kafka:9092
+
+  # Notification Microservice
+  notification-service:
+    build: 
+      context: ./notification-service
+      dockerfile: Dockerfile
+    networks:
+      - insurance-network
+    environment:
+      - TWILIO_SID=${TWILIO_SID}
+      - TWILIO_TOKEN=${TWILIO_TOKEN}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - KAFKA_BROKER=kafka:9092
+
+  # Databases
+  auth-db:
+    image: mysql:8
+    volumes:
+      - ./docker-compose/mysql/auth-db-data:/docker-entrypoint-initdb.d
+      - ./auth-db-data:/var/lib/mysql
+    networks:
+      - insurance-network
+    environment:
+      - MYSQL_ROOT_PASSWORD=auth_db
+      - MYSQL_DATABASE=${DB_PASSWORD}
+
+  policy-db:
+    image: mysql:8
+    volumes:
+      - ./docker-compose/mysql/policy-db-data:/docker-entrypoint-initdb.d
+      - ./policy-db-data:/var/lib/mysql
+    networks:
+      - insurance-network
+    environment:
+      - MYSQL_ROOT_PASSWORD=policy_db
+      - MYSQL_DATABASE=${DB_PASSWORD}
+
+  claims-db:
+    image: mysql:8
+    volumes:
+      - ./docker-compose/mysql/claims-db-data:/docker-entrypoint-initdb.d
+      - ./claims-db-data:/var/lib/mysql
+    networks:
+      - insurance-network
+    environment:
+      - MYSQL_ROOT_PASSWORD=claims_db
+      - MYSQL_DATABASE=${DB_PASSWORD}
+
+  customer-db:
+    image: mysql:8
+    volumes:
+      - ./docker-compose/mysql/customer-db-data:/docker-entrypoint-initdb.d
+      - ./customer-db-data:/var/lib/mysql
+    networks:
+      - insurance-network
+    environment:
+      - MYSQL_ROOT_PASSWORD=customer_db
+      - MYSQL_DATABASE=${DB_PASSWORD}
+
+  # Caching and Messaging
+  redis:
+    image: redis:6.2-alpine
+    networks:
+      - insurance-network
+    volumes:
+      - redis-data:/data
+
+  kafka:
+    image: wurstmeister/kafka
+    networks:
+      - insurance-network
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_ADVERTISED_HOST_NAME=kafka
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+
+  zookeeper:
+    image: wurstmeister/zookeeper
+    networks:
+      - insurance-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    networks:
+      - insurance-network
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # Service Discovery and Configuration
+  consul:
+    image: consul:latest
+    networks:
+      - insurance-network
+    ports:
+      - "8500:8500"
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+
+  # Monitoring and Observability
+  prometheus:
+    image: prom/prometheus
+    networks:
+      - insurance-network
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    networks:
+      - insurance-network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one
+    networks:
+      - insurance-network
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+
+  # Log Management
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.12.0
+    networks:
+      - insurance-network
+    environment:
+      - discovery.type=single-node
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.12.0
+    networks:
+      - insurance-network
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.12.0
+    networks:
+      - insurance-network
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  # API Gateway and Load Balancer
+  traefik:
+    image: traefik:v2.4
+    networks:
+      - insurance-network
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik.yml:/etc/traefik/traefik.yml
+
+  # Object Storage
+  minio:
+    image: minio/minio
+    networks:
+      - insurance-network
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+
+networks:
+  insurance-network:
+    driver: bridge
