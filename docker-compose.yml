@@ -17,6 +17,7 @@ services:
       - DB_DATABASE=insurance_db
       - DB_USERNAME=root
       - DB_PASSWORD=secrect
+      - SERVICE_URL=nginx
     networks:
       - app-network
 
@@ -36,6 +37,7 @@ services:
       - DB_DATABASE=insurance_db
       - DB_USERNAME=root
       - DB_PASSWORD=secrect
+      - SERVICE_URL=nginx
     networks:
       - app-network
 
@@ -55,6 +57,7 @@ services:
       - DB_DATABASE=insurance_db
       - DB_USERNAME=root
       - DB_PASSWORD=secrect
+      - SERVICE_URL=nginx
     networks:
       - app-network
 

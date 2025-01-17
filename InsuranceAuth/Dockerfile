@@ -36,10 +36,10 @@ COPY composer.json composer.lock /var/www/
 
 # Copy the rest of the application code
 COPY . /var/www
-
+COPY --chown=${user}:${user} .env.example /var/www/.env
 # Install PHP dependencies using Composer
-RUN composer install
-
+RUN composer install --optimize-autoloader --no-interaction --no-progress
+RUN php artisan key:generate
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
